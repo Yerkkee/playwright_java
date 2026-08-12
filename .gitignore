@@ -7,11 +7,45 @@ release.properties
 dependency-reduced-pom.xml
 buildNumber.properties
 .mvn/timing.properties
-# https://maven.apache.org/tools/wrapper/#Usage_with_or_without_Binary_JAR
 .mvn/wrapper/maven-wrapper.jar
 
-# Eclipse m2e generated files
-# Eclipse Core
-.project
-# JDT-specific (Eclipse Java Development Tools)
-.classpath
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+hs_err_pid*
+replay_pid*
+
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+
+.vscode/
+
+.DS_Store
+Thumbs.db
+desktop.ini
+
+*.log
+logs/
+
+test-output/
+test-results/
+screenshots/
+videos/
+traces/
+downloads/
+
+allure-results/
+allure-report/
+.allure/
+
+playwright-report/
+playwright/.cache/
+
+.env
+.env.local
