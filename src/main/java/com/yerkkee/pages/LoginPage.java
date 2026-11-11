@@ -4,6 +4,7 @@ import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.options.WaitForSelectorState;
 import com.yerkkee.data.TestUser;
+import io.qameta.allure.Allure;
 import io.qameta.allure.Step;
 import lombok.extern.slf4j.Slf4j;
 
@@ -35,10 +36,17 @@ public class LoginPage extends BasePage {
         usernameField.fill(username);
     }
 
-    @Step("Enter password")
+    /**
+     * Deliberately NOT annotated with @Step: Allure writes every @Step argument into
+     * allure-results/*.json, and even {@code @Param(mode = MASKED)} only hides it in the UI -
+     * the raw value stays in the JSON (which CI uploads as an artifact).
+     * A lambda step is still shown in the report but records no arguments.
+     */
     public void enterPassword(String password) {
-        log.info("Entering password: [MASKED]");
-        passwordField.fill(password);
+        Allure.step("Enter password: ******", () -> {
+            log.info("Entering password: [MASKED]");
+            passwordField.fill(password);
+        });
     }
 
     @Step("Click Login button")
