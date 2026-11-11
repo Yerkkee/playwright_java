@@ -56,6 +56,11 @@ public abstract class BaseTest {
         return new LoginPage(PlaywrightManager.page()).open();
     }
 
+    /** Tries to open the Products page with no session; returns the login page the app redirects to. */
+    protected LoginPage openInventoryWithoutSession() {
+        return new InventoryPage(PlaywrightManager.page()).openExpectingLoginRedirect();
+    }
+
     /**
      * Opens the Products page already authenticated, skipping the login form.
      * SauceDemo keeps the session in the "session-username" cookie, so setting it is enough.

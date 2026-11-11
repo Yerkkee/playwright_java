@@ -46,6 +46,13 @@ public class InventoryPage extends BasePage {
         return waitUntilOpened();
     }
 
+    /** Opens the page without a session: the app must bounce the user back to the login form. */
+    @Step("Open inventory page without a session, expecting redirect to login")
+    public LoginPage openExpectingLoginRedirect() {
+        navigate(PATH);
+        return new LoginPage(page).waitUntilOpened();
+    }
+
     @Step("Wait until inventory page is opened")
     public InventoryPage waitUntilOpened() {
         waitForPage(PATH, sortDropdown);
