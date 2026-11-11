@@ -7,6 +7,7 @@ import com.yerkkee.utils.AllureEnvironmentWriter;
 import io.qameta.allure.Allure;
 import io.qameta.allure.AttachmentOptions;
 import lombok.extern.slf4j.Slf4j;
+import org.testng.IConfigurationListener;
 import org.testng.ISuite;
 import org.testng.ISuiteListener;
 import org.testng.ITestListener;
@@ -29,7 +30,7 @@ import java.nio.file.Paths;
  * They also run before {@code @AfterMethod}, while the page is still open.
  */
 @Slf4j
-public class AllureArtifactsListener implements ITestListener, ISuiteListener {
+public class AllureArtifactsListener implements ITestListener, IConfigurationListener, ISuiteListener {
 
     private static final Path TRACE_DIR = Paths.get("target", "traces");
 
@@ -55,9 +56,25 @@ public class AllureArtifactsListener implements ITestListener, ISuiteListener {
 
     @Override
     public void onTestFailure(ITestResult result) {
-        log.error("<<< FAILED {} ({} ms): {}", testName(result), duration(result),
-                result.getThrowable() == null ? "" : result.getThrowable().toString());
+        log.error("<<< FAILED {} ({} ms): {}", testName(result), duration(result), errorOf(result));
+        attachArtifacts(result);
+    }
 
+    /**
+     * A failing {@code @BeforeMethod} (e.g. setup that opens pages) never reaches onTestFailure:
+     * TestNG reports it as a configuration failure and skips the test. The page may already be open,
+     * so the same artifacts are attached here. Failures of other configuration methods have no page.
+     */
+    @Override
+    public void onConfigurationFailure(ITestResult result) {
+        if (!result.getMethod().isBeforeMethodConfiguration()) {
+            return;
+        }
+        log.error("<<< SETUP FAILED {}: {}", testName(result), errorOf(result));
+        attachArtifacts(result);
+    }
+
+    private void attachArtifacts(ITestResult result) {
         // Each step is isolated: a crashed page must not prevent the trace/video from being saved
         if (TestConfig.screenshotOnFailure()) {
             safely("screenshot", this::attachScreenshot);
@@ -89,7 +106,7 @@ public class AllureArtifactsListener implements ITestListener, ISuiteListener {
 
     /** Video is written only when the context closes, so the listener closes it here. */
     private void attachVideo() {
-        PlaywrightManager.closeSession(true)
+        PlaywrightManager.closeContext(true)
                 .ifPresent(video -> attachFile("Video", "video/webm", video, "webm"));
     }
 
@@ -115,6 +132,10 @@ public class AllureArtifactsListener implements ITestListener, ISuiteListener {
 
     private static String fileSafeName(ITestResult result) {
         return testName(result).replaceAll("[^A-Za-z0-9._-]", "_");
+    }
+
+    private static String errorOf(ITestResult result) {
+        return result.getThrowable() == null ? "" : result.getThrowable().toString();
     }
 
     private static long duration(ITestResult result) {

@@ -1,7 +1,7 @@
 <!DOCTYPE suite SYSTEM "https://testng.org/testng-1.0.dtd">
 <!-- Full regression: every test in com.yerkkee.tests -->
 <!-- parallel="methods": every test method runs in its own thread; safe because Playwright objects are ThreadLocal -->
-<suite name="SauceDemo - Full" verbose="1" parallel="methods" thread-count="4">
+<suite name="SauceDemo - Full" verbose="1" configfailurepolicy="continue" parallel="methods" thread-count="4">
     <listeners>
         <listener class-name="com.yerkkee.listeners.AllureArtifactsListener"/>
     </listeners>

@@ -18,7 +18,7 @@ import java.util.List;
  * Base class for all UI tests.
  *
  * <p>Playwright objects live in {@link PlaywrightManager} (ThreadLocal), so tests can run with
- * {@code parallel="methods"}. Each test gets a fresh BrowserContext + Page.
+ * {@code parallel="methods"}. Each test gets its own browser, context and page.
  *
  * <p>{@code alwaysRun = true} is required: without it TestNG skips these methods
  * when a suite filters by groups (e.g. smoke.xml), and tests would get no browser.
@@ -34,16 +34,18 @@ public abstract class BaseTest {
 
     /**
      * Runs after the listener: on failure the listener has already saved trace/video
-     * and closed the context, so this call is a no-op. On success it discards trace and video.
+     * and closed the context. On success trace and video are discarded.
+     * Closes the browser in the same thread that started it.
      */
     @AfterMethod(alwaysRun = true)
     public void closeBrowserSession() {
-        PlaywrightManager.closeSession(false);
+        PlaywrightManager.closeSession();
     }
 
+    /** Safety net: normally a no-op, see PlaywrightManager#closeLeaked. */
     @AfterSuite(alwaysRun = true)
-    public void closeBrowsers() {
-        PlaywrightManager.closeAll();
+    public void closeLeakedBrowsers() {
+        PlaywrightManager.closeLeaked();
     }
 
     /**

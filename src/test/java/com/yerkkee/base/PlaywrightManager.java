@@ -14,21 +14,21 @@ import lombok.extern.slf4j.Slf4j;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
-import java.util.Queue;
-import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Owns all Playwright objects, one set per test thread.
+ * Owns all Playwright objects of the current test, one set per thread.
  *
- * <p>Why ThreadLocal: Playwright objects are not thread-safe. With TestNG {@code parallel="methods"}
- * each worker thread needs its own Playwright, Browser, BrowserContext and Page.
+ * <p>Why ThreadLocal: with TestNG {@code parallel="methods"} several tests run at once,
+ * each in its own worker thread, and each needs its own Playwright, Browser, BrowserContext and Page.
  *
- * <p>Lifecycle:
- * <ul>
- *   <li>Playwright + Browser - created lazily once per thread and reused (launching a browser is slow);</li>
- *   <li>BrowserContext + Page - created for every test method, so cookies/storage never leak between tests;</li>
- *   <li>everything is closed at the end of the suite via {@link #closeAll()}.</li>
- * </ul>
+ * <p>Why a new Playwright + Browser per test (not reused per thread): Playwright Java is not
+ * thread-safe and requires every object to be used <b>and closed</b> in the thread that created it.
+ * TestNG gives no "worker thread finished" hook, so the only place to close a per-thread browser
+ * would be {@code @AfterSuite} on the main thread - which breaks that rule. Creating and closing
+ * everything around each test keeps the whole lifecycle in one thread and gives full isolation;
+ * the cost is about a second of browser start-up per test, spread across parallel threads.
  */
 @Slf4j
 public final class PlaywrightManager {
@@ -41,8 +41,8 @@ public final class PlaywrightManager {
     private static final ThreadLocal<Page> PAGE = new ThreadLocal<>();
     private static final ThreadLocal<Boolean> TRACING = ThreadLocal.withInitial(() -> false);
 
-    /** Every Playwright created by any thread, so the suite can close them all at the end. */
-    private static final Queue<Playwright> ALL_PLAYWRIGHTS = new ConcurrentLinkedQueue<>();
+    /** Safety net only: instances still open if a test's cleanup did not run (see {@link #closeLeaked()}). */
+    private static final Set<Playwright> OPEN_PLAYWRIGHTS = ConcurrentHashMap.newKeySet();
 
     static {
         // Playwright's assertThat has its own timeout (5 s by default), separate from the context's.
@@ -54,16 +54,29 @@ public final class PlaywrightManager {
         throw new UnsupportedOperationException("Utility class");
     }
 
-    /** Opens a fresh context and page for the current test. */
+    /**
+     * Starts Playwright, browser, context and page for the current test.
+     * Each object is stored as soon as it exists, so {@link #closeSession()} can clean up
+     * even if a later step here throws.
+     */
     public static void startSession() {
+        Playwright playwright = Playwright.create();
+        PLAYWRIGHT.set(playwright);
+        OPEN_PLAYWRIGHTS.add(playwright);
+        // SauceDemo marks elements with data-test, so getByTestId() must look at that attribute
+        playwright.selectors().setTestIdAttribute("data-test");
+
+        Browser browser = launch(playwright);
+        BROWSER.set(browser);
+
         Browser.NewContextOptions options = new Browser.NewContextOptions()
                 .setViewportSize(TestConfig.viewportWidth(), TestConfig.viewportHeight());
         if (TestConfig.videoOnFailure()) {
             // Video can only be enabled when the context is created; it is deleted later for passed tests
             options.setRecordVideoDir(VIDEO_DIR);
         }
-
-        BrowserContext context = browser().newContext(options);
+        BrowserContext context = browser.newContext(options);
+        CONTEXT.set(context);
         context.setDefaultTimeout(TestConfig.defaultTimeout());
         context.setDefaultNavigationTimeout(TestConfig.navigationTimeout());
 
@@ -75,9 +88,7 @@ public final class PlaywrightManager {
             TRACING.set(true);
         }
 
-        CONTEXT.set(context);
         PAGE.set(context.newPage());
-        log.debug("Browser context created");
     }
 
     /** Page of the current test. Fails fast if called outside a test session. */
@@ -111,13 +122,13 @@ public final class PlaywrightManager {
     }
 
     /**
-     * Closes the current context. Safe to call twice: the listener closes it on failure
-     * (to grab the video), then {@code @AfterMethod} calls it again as a no-op.
+     * Closes the current context (the video file is finalized only at this point).
+     * Safe to call twice: the listener closes it on failure to grab the video,
+     * then {@link #closeSession()} calls it again as a no-op.
      *
      * @param keepVideo true - keep the video file and return its path; false - delete it
-     * @return path to the finished video when {@code keepVideo} is true and video is recorded
      */
-    public static Optional<Path> closeSession(boolean keepVideo) {
+    public static Optional<Path> closeContext(boolean keepVideo) {
         BrowserContext context = CONTEXT.get();
         if (context == null) {
             return Optional.empty();
@@ -128,7 +139,7 @@ public final class PlaywrightManager {
             if (TRACING.get()) {
                 context.tracing().stop(); // no path -> trace is discarded
             }
-            context.close(); // the video file is finalized only after the context is closed
+            context.close();
         } finally {
             CONTEXT.remove();
             PAGE.remove();
@@ -145,48 +156,51 @@ public final class PlaywrightManager {
         return Optional.empty();
     }
 
-    /** Closes every browser and Playwright instance created during the run. */
-    public static void closeAll() {
-        Playwright playwright;
-        while ((playwright = ALL_PLAYWRIGHTS.poll()) != null) {
+    /** Closes context, browser and Playwright of the current test - in the thread that created them. */
+    public static void closeSession() {
+        try {
+            closeContext(false);
+        } finally {
+            Playwright playwright = PLAYWRIGHT.get();
+            BROWSER.remove();
+            PLAYWRIGHT.remove();
+            if (playwright != null) {
+                OPEN_PLAYWRIGHTS.remove(playwright);
+                playwright.close(); // also closes its browser and the driver process
+            }
+        }
+    }
+
+    /**
+     * Last-resort cleanup at the end of the suite. Normally finds nothing; if a test's
+     * {@code @AfterMethod} could not run, it closes the leftovers so no browser process outlives the run.
+     */
+    public static void closeLeaked() {
+        if (OPEN_PLAYWRIGHTS.isEmpty()) {
+            return;
+        }
+        log.warn("Closing {} Playwright instance(s) left open by tests", OPEN_PLAYWRIGHTS.size());
+        for (Playwright playwright : OPEN_PLAYWRIGHTS) {
             try {
-                playwright.close(); // also closes its browsers
+                playwright.close();
             } catch (RuntimeException e) {
                 log.warn("Failed to close Playwright: {}", e.getMessage());
             }
         }
-        BROWSER.remove();
-        PLAYWRIGHT.remove();
-        log.info("All browsers closed");
+        OPEN_PLAYWRIGHTS.clear();
     }
 
-    private static Browser browser() {
-        Browser browser = BROWSER.get();
-        if (browser != null && browser.isConnected()) {
-            return browser;
-        }
-
-        Playwright playwright = PLAYWRIGHT.get();
-        if (playwright == null) {
-            playwright = Playwright.create();
-            // SauceDemo marks elements with data-test, so getByTestId() must look at that attribute
-            playwright.selectors().setTestIdAttribute("data-test");
-            PLAYWRIGHT.set(playwright);
-            ALL_PLAYWRIGHTS.add(playwright);
-        }
-
+    private static Browser launch(Playwright playwright) {
         BrowserType.LaunchOptions options = new BrowserType.LaunchOptions()
                 .setHeadless(TestConfig.headless())
                 .setSlowMo(TestConfig.slowMo());
 
-        browser = switch (TestConfig.browser()) {
+        Browser browser = switch (TestConfig.browser()) {
             case CHROMIUM -> playwright.chromium().launch(options);
             case FIREFOX -> playwright.firefox().launch(options);
             case WEBKIT -> playwright.webkit().launch(options);
         };
-        BROWSER.set(browser);
-        log.info("Browser launched: {} {} (headless={})",
-                TestConfig.browser(), browser.version(), TestConfig.headless());
+        log.debug("Browser launched: {} {}", TestConfig.browser(), browser.version());
         return browser;
     }
 }
