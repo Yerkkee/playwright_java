@@ -2,9 +2,7 @@
 <!-- Full regression: every test in com.yerkkee.tests -->
 <!-- parallel="methods": every test method runs in its own thread; safe because Playwright objects are ThreadLocal -->
 <suite name="SauceDemo - Full" verbose="1" configfailurepolicy="continue" parallel="methods" thread-count="4">
-    <listeners>
-        <listener class-name="com.yerkkee.listeners.AllureArtifactsListener"/>
-    </listeners>
+    <!-- AllureArtifactsListener is registered via META-INF/services, so it also works with -Dtest and IDE runs -->
 
     <test name="All tests">
         <packages>
