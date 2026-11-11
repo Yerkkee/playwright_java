@@ -49,3 +49,5 @@ playwright/.cache/
 
 .env
 .env.local
+# Playwright traces and other archives produced by test runs
+*.zip

@@ -15,22 +15,50 @@
     <description>UI test automation framework with Playwright and Java</description>
 
     <properties>
-        <maven.compiler.source>17</maven.compiler.source>
-        <maven.compiler.target>17</maven.compiler.target>
+        <maven.compiler.release>17</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
-        <playwright.version>1.47.0</playwright.version>
-        <testng.version>7.10.2</testng.version>
-        <allure.version>2.27.0</allure.version>
-        <lombok.version>1.18.34</lombok.version>
-        <slf4j.version>1.7.36</slf4j.version>
-        <aspectj.version>1.9.24</aspectj.version>
-        <surefire.version>3.3.1</surefire.version>
-        <allure.maven.version>2.12.0</allure.maven.version>
-        <browser>chromium</browser>
-        <headless>false</headless>
+        <!-- Libraries -->
+        <playwright.version>1.64.0</playwright.version>
+        <testng.version>7.12.0</testng.version>
+        <allure.version>3.1.1</allure.version>
+        <assertj.version>3.27.7</assertj.version>
+        <lombok.version>1.18.48</lombok.version>
+        <slf4j.version>2.0.20</slf4j.version>
+        <aspectj.version>1.9.27</aspectj.version>
+
+        <!-- Plugins -->
+        <compiler.plugin.version>3.16.0</compiler.plugin.version>
+        <!--
+            Pinned to 3.5.x on purpose: Surefire 3.6+ runs TestNG on the JUnit Platform
+            and no longer reads TestNG suite XML files (testng.xml / smoke.xml),
+            which this project uses for listeners, groups and parallel settings.
+        -->
+        <surefire.version>3.5.6</surefire.version>
+        <allure.maven.version>3.1.0</allure.maven.version>
+
+        <!--
+            Suite to run. Override: -Dsuite.file=smoke.xml
+            Browser/headless etc. are NOT defined here on purpose:
+            Surefire forwards any -Dkey=value from the command line to the test JVM,
+            and TestConfig falls back to config.properties when nothing is passed.
+        -->
         <suite.file>testng.xml</suite.file>
     </properties>
+
+    <!-- BOM keeps all Allure modules on one consistent version -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.qameta.allure</groupId>
+                <artifactId>allure-bom</artifactId>
+                <version>${allure.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <dependency>
@@ -48,7 +76,13 @@
         <dependency>
             <groupId>io.qameta.allure</groupId>
             <artifactId>allure-testng</artifactId>
-            <version>${allure.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <version>${assertj.version}</version>
+            <scope>test</scope>
         </dependency>
 
         <dependency>
@@ -58,6 +92,7 @@
             <scope>provided</scope>
         </dependency>
 
+        <!-- slf4j-api comes with slf4j-simple; both must be 2.x (Allure brings slf4j-api 2.x) -->
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-simple</artifactId>
@@ -69,6 +104,22 @@
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>${compiler.plugin.version}</version>
+                <configuration>
+                    <!-- Explicit processor path: required for Lombok on recent JDK/compiler plugin versions -->
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>${surefire.version}</version>
                 <configuration>
@@ -76,10 +127,9 @@
                         <suiteXmlFile>src/test/resources/${suite.file}</suiteXmlFile>
                     </suiteXmlFiles>
                     <systemPropertyVariables>
-                        <browser>${browser}</browser>
-                        <headless>${headless}</headless>
                         <allure.results.directory>${project.build.directory}/allure-results</allure.results.directory>
                     </systemPropertyVariables>
+                    <!-- AspectJ agent weaves Allure aspects so @Step methods become report steps -->
                     <argLine>
                         -javaagent:"${settings.localRepository}/org/aspectj/aspectjweaver/${aspectj.version}/aspectjweaver-${aspectj.version}.jar"
                     </argLine>
@@ -98,7 +148,7 @@
                 <artifactId>allure-maven</artifactId>
                 <version>${allure.maven.version}</version>
                 <configuration>
-                    <reportVersion>${allure.version}</reportVersion>
+                    <resultsDirectory>allure-results</resultsDirectory>
                 </configuration>
             </plugin>
         </plugins>

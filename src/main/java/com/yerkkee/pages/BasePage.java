@@ -34,7 +34,7 @@ public abstract class BasePage {
      * Navigate to the base URL from config.
      */
     public void openBaseUrl() {
-        navigate(TestConfig.get("base.url"));
+        navigate(TestConfig.baseUrl());
     }
 
     /**

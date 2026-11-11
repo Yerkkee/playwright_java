@@ -5,8 +5,9 @@ import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.BrowserType;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
+import com.yerkkee.config.BrowserName;
 import com.yerkkee.config.TestConfig;
-import lombok.Getter;
+import com.yerkkee.pages.LoginPage;
 import lombok.extern.slf4j.Slf4j;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
@@ -25,10 +26,9 @@ public abstract class BaseTest {
     private Browser browser;
     private BrowserContext context;
 
-    @Getter
     private Page page;
 
-    @BeforeClass
+    @BeforeClass(alwaysRun = true)
     public void launchBrowser() {
         log.info("=== Launching browser ===");
         playwright = Playwright.create();
@@ -36,42 +36,44 @@ public abstract class BaseTest {
         // Tell Playwright to look for data-test attribute (SauceDemo uses this)
         playwright.selectors().setTestIdAttribute("data-test");
 
-        String browserName = TestConfig.get("browser");
-        boolean headless = TestConfig.getBoolean("headless");
-        double slowMo = TestConfig.getInt("slow.mo");
+        BrowserName browserName = TestConfig.browser();
+        boolean headless = TestConfig.headless();
 
         BrowserType.LaunchOptions options = new BrowserType.LaunchOptions()
                 .setHeadless(headless)
-                .setSlowMo(slowMo);
+                .setSlowMo(TestConfig.slowMo());
 
-        browser = switch (browserName.toLowerCase()) {
-            case "firefox" -> playwright.firefox().launch(options);
-            case "webkit" -> playwright.webkit().launch(options);
-            case "chromium" -> playwright.chromium().launch(options);
-            default -> throw new IllegalArgumentException(
-                    "Unsupported browser: " + browserName);
+        browser = switch (browserName) {
+            case CHROMIUM -> playwright.chromium().launch(options);
+            case FIREFOX -> playwright.firefox().launch(options);
+            case WEBKIT -> playwright.webkit().launch(options);
         };
 
         log.info("Browser launched: {} (headless={})", browserName, headless);
     }
 
-    @BeforeMethod
+    @BeforeMethod(alwaysRun = true)
     public void createContextAndPage() {
         log.info("--- Creating new context and page ---");
 
-        int width = TestConfig.getInt("viewport.width");
-        int height = TestConfig.getInt("viewport.height");
-
         context = browser.newContext(new Browser.NewContextOptions()
-                .setViewportSize(width, height));
+                .setViewportSize(TestConfig.viewportWidth(), TestConfig.viewportHeight()));
 
-        context.setDefaultTimeout(TestConfig.getInt("default.timeout"));
-        context.setDefaultNavigationTimeout(TestConfig.getInt("navigation.timeout"));
+        context.setDefaultTimeout(TestConfig.defaultTimeout());
+        context.setDefaultNavigationTimeout(TestConfig.navigationTimeout());
 
         page = context.newPage();
     }
 
-    @AfterMethod
+    /**
+     * Entry point for tests: opens the application and returns the first page object,
+     * so tests never deal with the raw Playwright Page.
+     */
+    protected LoginPage openLoginPage() {
+        return new LoginPage(page).open();
+    }
+
+    @AfterMethod(alwaysRun = true)
     public void closeContext() {
         log.info("--- Closing context ---");
         if (context != null) {
@@ -79,7 +81,7 @@ public abstract class BaseTest {
         }
     }
 
-    @AfterClass
+    @AfterClass(alwaysRun = true)
     public void closeBrowser() {
         log.info("=== Closing browser ===");
         if (browser != null) {
