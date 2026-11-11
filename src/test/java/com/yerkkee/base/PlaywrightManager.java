@@ -7,6 +7,7 @@ import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.Tracing;
 import com.microsoft.playwright.Video;
+import com.microsoft.playwright.assertions.PlaywrightAssertions;
 import com.yerkkee.config.TestConfig;
 import lombok.extern.slf4j.Slf4j;
 
@@ -42,6 +43,12 @@ public final class PlaywrightManager {
 
     /** Every Playwright created by any thread, so the suite can close them all at the end. */
     private static final Queue<Playwright> ALL_PLAYWRIGHTS = new ConcurrentLinkedQueue<>();
+
+    static {
+        // Playwright's assertThat has its own timeout (5 s by default), separate from the context's.
+        // One global value keeps "wait for action" and "wait for assertion" consistent.
+        PlaywrightAssertions.setDefaultAssertionTimeout(TestConfig.defaultTimeout());
+    }
 
     private PlaywrightManager() {
         throw new UnsupportedOperationException("Utility class");

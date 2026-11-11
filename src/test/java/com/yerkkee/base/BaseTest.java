@@ -1,9 +1,18 @@
 package com.yerkkee.base;
 
+import com.microsoft.playwright.Page;
+import com.microsoft.playwright.options.Cookie;
+import com.yerkkee.config.TestConfig;
+import com.yerkkee.data.TestUser;
+import com.yerkkee.pages.InventoryPage;
 import com.yerkkee.pages.LoginPage;
+import io.qameta.allure.Step;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.AfterSuite;
 import org.testng.annotations.BeforeMethod;
+
+import java.net.URI;
+import java.util.List;
 
 /**
  * Base class for all UI tests.
@@ -15,6 +24,8 @@ import org.testng.annotations.BeforeMethod;
  * when a suite filters by groups (e.g. smoke.xml), and tests would get no browser.
  */
 public abstract class BaseTest {
+
+    private static final String SESSION_COOKIE = "session-username";
 
     @BeforeMethod(alwaysRun = true)
     public void startBrowserSession() {
@@ -41,5 +52,19 @@ public abstract class BaseTest {
      */
     protected LoginPage openLoginPage() {
         return new LoginPage(PlaywrightManager.page()).open();
+    }
+
+    /**
+     * Opens the Products page already authenticated, skipping the login form.
+     * SauceDemo keeps the session in the "session-username" cookie, so setting it is enough.
+     * UI login is covered by LoginTest; other tests use this shortcut - faster and less flaky.
+     */
+    @Step("Open inventory as {user.username} (session cookie, UI login skipped)")
+    protected InventoryPage openInventoryAs(TestUser user) {
+        Page page = PlaywrightManager.page();
+        page.context().addCookies(List.of(new Cookie(SESSION_COOKIE, user.getUsername())
+                .setDomain(URI.create(TestConfig.baseUrl()).getHost())
+                .setPath("/")));
+        return new InventoryPage(page).open();
     }
 }

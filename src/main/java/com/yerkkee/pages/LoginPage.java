@@ -2,12 +2,21 @@ package com.yerkkee.pages;
 
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
-import com.microsoft.playwright.options.WaitForSelectorState;
 import com.yerkkee.data.TestUser;
 import io.qameta.allure.Allure;
 import io.qameta.allure.Step;
 import lombok.extern.slf4j.Slf4j;
 
+import static com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat;
+
+/**
+ * Login form (root URL).
+ *
+ * <p>Password handling: methods that take a raw password are NOT annotated with @Step.
+ * Allure writes every @Step argument into allure-results/*.json, and even
+ * {@code @Param(mode = MASKED)} only hides it in the UI, not in the JSON that CI uploads.
+ * Those methods use {@code Allure.step(name, lambda)} instead: still a report step, no arguments recorded.
+ */
 @Slf4j
 public class LoginPage extends BasePage {
 
@@ -26,27 +35,30 @@ public class LoginPage extends BasePage {
 
     @Step("Open login page")
     public LoginPage open() {
-        openBaseUrl();
+        navigate("/");
+        return waitUntilOpened();
+    }
+
+    @Step("Wait until login page is opened")
+    public LoginPage waitUntilOpened() {
+        waitForPage("/", loginButton);
         return this;
     }
 
     @Step("Enter username: {username}")
-    public void enterUsername(String username) {
+    public LoginPage enterUsername(String username) {
         log.info("Entering username: {}", username);
         usernameField.fill(username);
+        return this;
     }
 
-    /**
-     * Deliberately NOT annotated with @Step: Allure writes every @Step argument into
-     * allure-results/*.json, and even {@code @Param(mode = MASKED)} only hides it in the UI -
-     * the raw value stays in the JSON (which CI uploads as an artifact).
-     * A lambda step is still shown in the report but records no arguments.
-     */
-    public void enterPassword(String password) {
+    /** See class javadoc: no @Step on purpose, the password must not reach allure-results. */
+    public LoginPage enterPassword(String password) {
         Allure.step("Enter password: ******", () -> {
             log.info("Entering password: [MASKED]");
             passwordField.fill(password);
         });
+        return this;
     }
 
     @Step("Click Login button")
@@ -55,23 +67,35 @@ public class LoginPage extends BasePage {
         loginButton.click();
     }
 
+    /** Happy path: logs in and waits for the Products page. */
     @Step("Login as {user.username}")
     public InventoryPage loginAs(TestUser user) {
-        log.info("Logging in as user: {}", user.getUsername());
         enterUsername(user.getUsername());
         enterPassword(user.getPassword());
         clickLogin();
-        return new InventoryPage(page);
+        return new InventoryPage(page).waitUntilOpened();
     }
 
+    /** Negative path: submits the form and stays on the login page (error is expected). */
+    @Step("Login as {user.username} expecting an error")
+    public LoginPage loginExpectingError(TestUser user) {
+        return loginExpectingError(user.getUsername(), user.getPassword());
+    }
+
+    /** Negative path with arbitrary credentials. No @Step: see class javadoc. */
+    public LoginPage loginExpectingError(String username, String password) {
+        Allure.step("Login as '" + username + "' expecting an error", () -> {
+            enterUsername(username);
+            enterPassword(password);
+            clickLogin();
+        });
+        return this;
+    }
+
+    /** Waits for the error banner and returns its text. */
     @Step("Get error message")
     public String getErrorMessage() {
-        errorMessage.waitFor(new Locator.WaitForOptions()
-                .setState(WaitForSelectorState.VISIBLE));
-        return errorMessage.textContent();
-    }
-
-    public boolean isErrorVisible() {
-        return errorMessage.isVisible();
+        assertThat(errorMessage).isVisible();
+        return errorMessage.innerText().trim();
     }
 }

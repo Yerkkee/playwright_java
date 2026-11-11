@@ -2,59 +2,104 @@ package com.yerkkee.pages;
 
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
-import com.microsoft.playwright.options.WaitForSelectorState;
+import com.microsoft.playwright.options.AriaRole;
+import com.yerkkee.data.Product;
+import com.yerkkee.data.SortOption;
+import com.yerkkee.pages.components.HeaderComponent;
 import io.qameta.allure.Step;
 import lombok.extern.slf4j.Slf4j;
 
+import java.math.BigDecimal;
+import java.util.List;
+
+/**
+ * Products page ("/inventory.html").
+ */
 @Slf4j
 public class InventoryPage extends BasePage {
 
-    private final Locator inventoryList;
-    private final Locator pageTitle;
-    private final Locator shoppingCart;
-    private final Locator menuButton;
-    private final Locator logoutLink;
+    private static final String PATH = "/inventory.html";
+
+    private final HeaderComponent header;
+    private final Locator title;
+    private final Locator sortDropdown;
+    private final Locator activeSortOption;
+    private final Locator items;
+    private final Locator itemNames;
+    private final Locator itemPrices;
 
     public InventoryPage(Page page) {
         super(page);
-        inventoryList = page.locator(".inventory_list");
-        pageTitle = page.getByTestId("title");
-        shoppingCart = page.locator(".shopping_cart_link");
-        menuButton = page.locator("#react-burger-menu-btn");
-        logoutLink = page.locator("#logout_sidebar_link");
+        header = new HeaderComponent(page);
+        title = page.getByTestId("title");
+        sortDropdown = page.getByTestId("product-sort-container");
+        activeSortOption = page.getByTestId("active-option");
+        items = page.getByTestId("inventory-item");
+        itemNames = page.getByTestId("inventory-item-name");
+        itemPrices = page.getByTestId("inventory-item-price");
     }
 
-    @Step("Check that inventory page is loaded")
-    public boolean isLoaded() {
-        try {
-            inventoryList.waitFor(new Locator.WaitForOptions()
-                    .setState(WaitForSelectorState.VISIBLE));
-            return true;
-        } catch (Exception e) {
-            log.warn("Inventory page did not load: {}", e.getMessage());
-            return false;
-        }
+    /** Opens the page directly; requires an authenticated session (see BaseTest#openInventoryAs). */
+    @Step("Open inventory page")
+    public InventoryPage open() {
+        navigate(PATH);
+        return waitUntilOpened();
+    }
+
+    @Step("Wait until inventory page is opened")
+    public InventoryPage waitUntilOpened() {
+        waitForPage(PATH, sortDropdown);
+        return this;
+    }
+
+    public HeaderComponent header() {
+        return header;
     }
 
     @Step("Get page title")
     public String getPageTitle() {
-        return pageTitle.textContent();
+        return title.innerText().trim();
+    }
+
+    @Step("Add to cart: {products}")
+    public InventoryPage addToCart(Product... products) {
+        for (Product product : products) {
+            log.info("Adding to cart: {}", product);
+            itemByName(items, product).getByRole(AriaRole.BUTTON, new Locator.GetByRoleOptions().setName("Add to cart")).click();
+        }
+        return this;
+    }
+
+    @Step("Remove from cart: {product}")
+    public InventoryPage removeFromCart(Product product) {
+        log.info("Removing from cart: {}", product);
+        itemByName(items, product).getByRole(AriaRole.BUTTON, new Locator.GetByRoleOptions().setName("Remove")).click();
+        return this;
+    }
+
+    @Step("Sort products by: {option}")
+    public InventoryPage sortBy(SortOption option) {
+        sortDropdown.selectOption(option.getValue());
+        return this;
+    }
+
+    @Step("Get selected sort option")
+    public String getSelectedSortLabel() {
+        return activeSortOption.innerText().trim();
+    }
+
+    @Step("Get product names")
+    public List<String> getProductNames() {
+        return textsOf(itemNames);
+    }
+
+    @Step("Get product prices")
+    public List<BigDecimal> getProductPrices() {
+        return pricesOf(itemPrices);
     }
 
     @Step("Get product count")
     public int getProductCount() {
-        return inventoryList.locator(".inventory_item").count();
-    }
-
-    @Step("Check that shopping cart is visible")
-    public boolean isCartVisible() {
-        return shoppingCart.isVisible();
-    }
-
-    @Step("Logout")
-    public void logout() {
-        log.info("Logging out");
-        menuButton.click();
-        logoutLink.click();
+        return items.count();
     }
 }
