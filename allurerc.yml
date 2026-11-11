@@ -2,6 +2,9 @@
 # Allure 3 reads failure categories from here, not from categories.json in allure-results.
 name: SauceDemo UI Tests
 
+# Keep the trend of the last N runs (history.jsonl grows by one line per report)
+historyLimit: 20
+
 # First matching rule wins, so the specific "Test defects" rule goes before the generic "Broken".
 categories:
   - name: Product defects

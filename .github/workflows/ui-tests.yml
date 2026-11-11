@@ -1,0 +1,159 @@
+name: UI Tests
+
+on:
+  push:
+    branches-ignore: [gh-pages]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      browser:
+        description: Browser to run the tests in
+        type: choice
+        options: [chromium, firefox, webkit]
+        default: chromium
+      suite:
+        description: TestNG suite file from src/test/resources
+        type: choice
+        options: [testng.xml, smoke.xml]
+        default: testng.xml
+
+# Needed to push the Allure report to the gh-pages branch
+permissions:
+  contents: write
+
+# A newer push to the same branch cancels the run that is still in progress
+concurrency:
+  group: ui-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BROWSER: ${{ inputs.browser || 'chromium' }}
+  SUITE: ${{ inputs.suite || 'testng.xml' }}
+  # Publish only from main (push or manual run); PRs and other branches just build the report as an artifact
+  PUBLISH_REPORT: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+
+jobs:
+  test:
+    name: Tests (${{ inputs.browser || 'chromium' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Java 17 with Maven cache
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ env.BROWSER }}-${{ hashFiles('pom.xml') }}
+
+      # --with-deps also installs the OS libraries the browser needs; ffmpeg is used for video recording
+      - name: Install Playwright browser
+        run: >
+          ./mvnw -B -q exec:java
+          -Dexec.mainClass=com.microsoft.playwright.CLI
+          -Dexec.args="install --with-deps ${BROWSER} ffmpeg"
+
+      # continue-on-error: the report and artifacts must be produced even when tests fail;
+      # the last step fails the job afterwards
+      - name: Run tests
+        id: tests
+        continue-on-error: true
+        run: ./mvnw -B clean test -Dheadless=true -Dbrowser=${BROWSER} -Dsuite.file=${SUITE}
+
+      - name: Upload Allure results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: allure-results-${{ env.BROWSER }}
+          path: target/allure-results
+          retention-days: 14
+
+      - name: Upload traces and videos of failed tests
+        if: steps.tests.outcome == 'failure'
+        uses: actions/upload-artifact@v7
+        with:
+          name: failure-artifacts-${{ env.BROWSER }}
+          path: |
+            target/traces
+            target/videos
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # ---------- Allure report with history ----------
+
+      - name: Checkout gh-pages (previous report history)
+        uses: actions/checkout@v7
+        continue-on-error: true # the branch does not exist before the first publish
+        with:
+          ref: gh-pages
+          path: gh-pages
+
+      # Allure 3 keeps the trend in one history.jsonl file; it is stored on gh-pages between runs
+      - name: Restore report history
+        run: |
+          mkdir -p .allure/history/report
+          if [ -f gh-pages/history/history.jsonl ]; then
+            cp gh-pages/history/history.jsonl .allure/history/report/history.jsonl
+            echo "History restored: $(wc -l < .allure/history/report/history.jsonl) previous run(s)"
+          else
+            echo "No previous history - first report"
+          fi
+
+      - name: Cache Allure and Node.js
+        uses: actions/cache@v6
+        with:
+          path: |
+            .allure/node-*
+            .allure/allure-*
+            .allure/bin
+          key: allure-${{ runner.os }}-${{ hashFiles('pom.xml') }}
+
+      - name: Generate Allure report
+        run: |
+          ./mvnw -B allure:report
+          mkdir -p target/site/allure-maven-plugin/history
+          cp .allure/history/report/history.jsonl target/site/allure-maven-plugin/history/
+
+      - name: Upload Allure report
+        uses: actions/upload-artifact@v7
+        with:
+          name: allure-report-${{ env.BROWSER }}
+          path: target/site/allure-maven-plugin
+          retention-days: 14
+
+      - name: Publish report to GitHub Pages
+        if: env.PUBLISH_REPORT == 'true'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: target/site/allure-maven-plugin
+          commit_message: "docs: Allure report for ${{ github.sha }} (${{ env.BROWSER }})"
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "### UI tests: ${{ steps.tests.outcome }}"
+            echo "- Browser: \`${BROWSER}\`, suite: \`${SUITE}\`"
+            if [ "${PUBLISH_REPORT}" = "true" ]; then
+              echo "- Report: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+            else
+              echo "- Report: download the \`allure-report-${BROWSER}\` artifact"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail the job if tests failed
+        if: steps.tests.outcome == 'failure'
+        run: |
+          echo "::error::Some tests failed - see the Allure report and failure artifacts"
+          exit 1

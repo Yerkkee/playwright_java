@@ -1,0 +1,9 @@
+# Normalize text files to LF in the repository
+* text=auto
+
+# Shell scripts must keep LF, otherwise they fail on Linux CI ("bad interpreter: /bin/sh^M")
+mvnw text eol=lf
+*.sh text eol=lf
+
+# Windows scripts keep CRLF
+*.cmd text eol=crlf
